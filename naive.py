@@ -31,7 +31,7 @@ class QNetwork(nn.Module):
 
 class DQN_Agent():
 
-    def __init__(self, obs_dim, n_actions, learning_rate, gamma, device=None):
+    def __init__(self, obs_dim, n_actions, learning_rate, gamma, hidden_dim=128, device=None):
         self.obs_dim = obs_dim
         self.n_actions = n_actions
         self.learning_rate = learning_rate
@@ -41,7 +41,7 @@ class DQN_Agent():
             "cuda" if torch.cuda.is_available() else "cpu"
         )
 
-        self.q_net = QNetwork(obs_dim, n_actions).to(self.device)
+        self.q_net = QNetwork(obs_dim, n_actions, hidden_dim=hidden_dim).to(self.device)
         self.optimizer = optim.Adam(self.q_net.parameters(), lr=learning_rate)
         self.loss_fn = nn.MSELoss()
 
@@ -147,13 +147,18 @@ class DQN_Agent():
 
 def DQN_run(n_timesteps, max_episode_length, learning_rate, gamma,
                 policy='egreedy', epsilon=None, temp=None,
-                plot=True, eval_interval=500):
+                hidden_dim=128, env_steps_per_update=100, plot=False, eval_interval=500,
+                n_eval_episodes=10, seed=None):
     '''
     Runs a single repetition of a Monte Carlo RL agent.
     Returns:
         eval_returns: array of evaluation returns
         eval_timesteps: array of timesteps at which evaluation happened
     '''
+
+    if seed is not None:
+        np.random.seed(seed)
+        torch.manual_seed(seed)
 
     def make_env():
         return gym.make("CartPole-v1")
@@ -165,20 +170,19 @@ def DQN_run(n_timesteps, max_episode_length, learning_rate, gamma,
 
     envs = SyncVectorEnv([make_env for _ in range(num_envs)])
 
-    print(env.observation_space)
     obs_dim = env.observation_space.shape[0]   # CartPole observation is a 4D vector
     n_actions = env.action_space.n             # CartPole has a discrete action space
 
-    pi = DQN_Agent(obs_dim, n_actions, learning_rate, gamma)
+    pi = DQN_Agent(obs_dim, n_actions, learning_rate, gamma, hidden_dim=hidden_dim)
 
     batch = []
-    batch_size = 100
+    batch_size = env_steps_per_update
 
     eval_timesteps = []
     eval_returns = []
 
     timestep = 0
-    s, _ = envs.reset()
+    s, _ = envs.reset(seed=seed)
 
     while timestep < n_timesteps:
 
@@ -200,7 +204,7 @@ def DQN_run(n_timesteps, max_episode_length, learning_rate, gamma,
         if timestep % eval_interval == 0:
             mean_return = pi.evaluate(
                 eval_env,
-                n_eval_episodes=30,
+                n_eval_episodes=n_eval_episodes,
                 max_episode_length=max_episode_length
             )
             eval_timesteps.append(timestep)
